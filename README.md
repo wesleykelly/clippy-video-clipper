@@ -2,7 +2,10 @@
 
 This project is MacOS-only currently.
 
-Run the whole shebang:
+Run Instructions:
+
+brew install ffmpeg
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 python3 clippy.py
 
 This serves up an application on http://127.0.0.1:5001
