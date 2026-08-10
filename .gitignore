@@ -1,0 +1,16 @@
+# Virtualenv: platform-specific and rebuilt from requirements.txt
+.venv/
+
+# Per-job working directories created by clippy.py
+jobs/
+
+# Generated media and transcripts
+*.mov
+*.mp4
+*.m4v
+*.srt
+.smallify-passlog*
+
+__pycache__/
+*.pyc
+.DS_Store
