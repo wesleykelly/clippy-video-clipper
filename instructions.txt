@@ -1,0 +1,23 @@
+Run the whole shebang:
+python3 clippy.py
+
+
+Or run individual scripts:
+
+Extract clip from full show:
+python3 clip.py show.mov 00:10:10.5 00:11:44
+
+Crop horizontally:
+python3 crop.py clip.mov 20 60
+
+Generate Captions, first pass:
+python3 caption.py cropped.mov
+
+Generate Captions, after manually updating captions.srt:
+python3 caption.py cropped.mov --srt captions.srt
+
+Remove anything you don't want:
+python3 remove.py captioned.mov 00:00:03.5 00:00:18
+
+If needed for sharing, make file under 25mb:
+python3 smallify.py captioned.mov

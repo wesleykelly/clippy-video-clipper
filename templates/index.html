@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clippy</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #16181d; --muted: #666e7a;
+    --line: #dfe3e8; --accent: #2f6fed; --accent-ink: #fff;
+    --warn: #b4531a; --ok: #1d7a4c; --shade: rgba(10,12,16,.72);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --panel: #1c1f25; --ink: #e9ecf1; --muted: #98a1ad;
+      --line: #2b3038; --accent: #5b8dfb; --accent-ink: #0d1017;
+      --warn: #e39355; --ok: #4cc38a; --shade: rgba(0,0,0,.78);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: -.02em; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .steps { display: flex; gap: 6px; margin-bottom: 24px; flex-wrap: wrap; }
+  .steps div {
+    flex: 1; min-width: 92px; font-size: 12px; padding: 7px 10px; border-radius: 7px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+  }
+  .steps div.on { border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .steps div.done { color: var(--ok); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px; margin-bottom: 18px;
+  }
+  .card h2 { font-size: 17px; margin: 0 0 4px; }
+  .card p.hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .hidden { display: none !important; }
+  button {
+    font: inherit; padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.link { border: none; background: none; color: var(--accent); padding: 4px 6px; }
+  button.back { color: var(--muted); }
+  .media { text-align: center; }
+  /* The wrapper shrink-wraps whatever is inside it, so the crop overlay lines
+     up with the picture itself. Sizing the media to a full-width box instead
+     would letterbox it, leaving the overlay pinned to the box edges while the
+     picture sat somewhere inside them. */
+  .frameBox { position: relative; display: inline-block; line-height: 0;
+              border-radius: 9px; overflow: hidden; max-width: 100%; }
+  .frameBox > video, .frameBox > img {
+    display: block; max-height: 46vh; max-width: 100%;
+    width: auto; height: auto; background: #000;
+  }
+  video.plain {
+    display: block; width: 100%; max-height: 46vh;
+    border-radius: 9px; background: #000;
+  }
+  .mask { position: absolute; top: 0; bottom: 0; background: var(--shade); pointer-events: none; }
+  .edge { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 10px; }
+  .row.split { justify-content: space-between; }
+  input[type=text] {
+    font: 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--ink); width: 118px;
+  }
+  label.lbl { font-size: 13px; color: var(--muted); min-width: 42px; }
+  ul.cuts { list-style: none; padding: 0; margin: 12px 0 0; }
+  ul.cuts li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px;
+    margin-bottom: 6px; font: 13px ui-monospace, Menlo, monospace;
+  }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  textarea {
+    width: 100%; min-height: 260px; padding: 12px; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
+  }
+  .status { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
+  .spin {
+    width: 15px; height: 15px; border: 2px solid var(--line);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .err { color: var(--warn); font-size: 14px; white-space: pre-wrap; }
+  .filelist button { display: block; width: 100%; text-align: left; margin-bottom: 7px; }
+  .filelist small { color: var(--muted); }
+  .meta { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Clippy</h1>
+  <p class="sub">Trim, cut, crop and caption a clip.</p>
+
+  <div class="steps">
+    <div id="s1" class="on">1 &middot; Video</div>
+    <div id="s2">2 &middot; Clip &amp; cuts</div>
+    <div id="s3">3 &middot; Crop</div>
+    <div id="s4">4 &middot; Captions</div>
+    <div id="s5">5 &middot; Done</div>
+  </div>
+
+  <!-- 1 ------------------------------------------------------------------ -->
+  <div class="card" id="step1">
+    <h2>Choose a video</h2>
+    <p class="hint">Files in the Clippy folder. Nothing is uploaded &mdash; they are read straight off disk.</p>
+    <div class="filelist" id="files">Loading&hellip;</div>
+  </div>
+
+  <!-- 2 ------------------------------------------------------------------ -->
+  <div class="card hidden" id="step2">
+    <h2>Choose the clip</h2>
+    <p class="hint">Scrub to a moment, then set it as the start or end. Add cuts for anything you want dropped from the middle.</p>
+    <video id="player" class="plain" controls preload="metadata"></video>
+    <div class="row" style="margin-top:12px">
+      <label class="lbl">Start</label>
+      <input type="text" id="startT" value="00:00:00.0">
+      <button id="setStart">Use current</button>
+      <label class="lbl" style="margin-left:12px">End</label>
+      <input type="text" id="endT" value="00:00:00.0">
+      <button id="setEnd">Use current</button>
+    </div>
+    <div class="row">
+      <button id="addCut">Add a cut at current position</button>
+      <span class="meta" id="cutHint"></span>
+    </div>
+    <ul class="cuts" id="cutList"></ul>
+    <div class="row split" style="margin-top:16px">
+      <button class="back" id="back1">&larr; Choose a different video</button>
+      <span style="display:flex;gap:10px;align-items:center">
+        <span id="clipStatus"></span>
+        <button class="primary" id="makeClip">Make the clip</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- 3 ------------------------------------------------------------------ -->
+  <div class="card hidden" id="step3">
+    <h2>Crop the sides</h2>
+    <p class="hint">Your clip as it stands &mdash; play it to check the framing. Shaded areas get trimmed away.</p>
+    <div class="media">
+      <div class="frameBox">
+        <video id="cropVid" controls preload="metadata"></video>
+        <div class="mask" id="maskL"></div>
+        <div class="mask" id="maskR"></div>
+        <div class="edge" id="edgeL"></div>
+        <div class="edge" id="edgeR"></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <label class="lbl">Left</label>
+      <input type="range" id="cropL" min="0" max="100" value="0" style="flex:1">
+      <span class="meta" id="cropLv" style="width:38px">0%</span>
+    </div>
+    <div class="row">
+      <label class="lbl">Right</label>
+      <input type="range" id="cropR" min="0" max="100" value="100" style="flex:1">
+      <span class="meta" id="cropRv" style="width:38px">100%</span>
+    </div>
+    <p class="meta" id="cropDims"></p>
+    <div class="row split">
+      <button class="back" id="back2">&larr; Back to clip &amp; cuts</button>
+      <span style="display:flex;gap:10px;align-items:center">
+        <span id="cropStatus"></span>
+        <button class="primary" id="doCrop">Apply crop</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- 4 ------------------------------------------------------------------ -->
+  <div class="card hidden" id="step4">
+    <h2>Check the captions</h2>
+    <p class="hint">Your cropped clip with the captions laid over it. Edit below and the preview updates &mdash; leave the timings alone, and don't worry about numbering them.</p>
+    <video id="capVid" class="plain" controls preload="metadata" crossorigin="anonymous"></video>
+    <p class="meta" style="margin:8px 0 4px">Auto&#8209;transcription always gets some words wrong.</p>
+    <textarea id="srt" spellcheck="true"></textarea>
+    <div class="row split" style="margin-top:12px">
+      <button class="back" id="back3">&larr; Back to crop</button>
+      <span style="display:flex;gap:10px;align-items:center">
+        <span id="renderStatus"></span>
+        <button class="primary" id="doRender">Render the final clip</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- 5 ------------------------------------------------------------------ -->
+  <div class="card hidden" id="step5">
+    <h2>Finished</h2>
+    <video id="finalVid" class="plain" controls preload="metadata"></video>
+    <div class="row split" style="margin-top:14px">
+      <button class="back" id="back4">&larr; Back to captions</button>
+      <span style="display:flex;gap:10px;align-items:center">
+        <button id="again">Start another</button>
+        <a id="dl"><button class="primary">Download</button></a>
+      </span>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let job = null, cuts = [], hasTranscript = false, cropApplied = null;
+
+// ---- time helpers: the tools accept HH:MM:SS with one optional decimal ----
+function fmt(sec) {
+  sec = Math.max(0, sec || 0);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  const s = (sec % 60).toFixed(1).padStart(4, '0');
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${s}`;
+}
+function parse(t) {
+  const m = /^(\d{1,2}):([0-5]\d):([0-5]\d(?:\.\d)?)$/.exec(t.trim());
+  if (!m) return null;
+  return (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]);
+}
+function step(n) {
+  [1,2,3,4,5].forEach(i => {
+    $('step'+i).classList.toggle('hidden', i !== n);
+    const tab = $('s'+i);
+    tab.classList.toggle('on', i === n);
+    tab.classList.toggle('done', i < n);
+  });
+  // Stop anything playing on the screen being left behind.
+  ['player','cropVid','capVid','finalVid'].forEach(v => { const e = $(v); if (e) e.pause(); });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function busy(el, msg) { el.innerHTML = `<span class="status"><span class="spin"></span>${msg}</span>`; }
+function fail(el, msg) { el.innerHTML = `<span class="err">${msg}</span>`; }
+
+async function wait(stepName) {
+  while (true) {
+    await new Promise(r => setTimeout(r, 700));
+    const s = await (await fetch(`/api/jobs/${job}`)).json();
+    if (s.state === 'error') throw new Error(s.error || 'failed');
+    if (s.state === 'done' && s.step === stepName) return s;
+  }
+}
+
+// ---- 1: pick a file ------------------------------------------------------
+(async function loadFiles() {
+  const list = await (await fetch('/api/videos')).json();
+  const box = $('files');
+  if (!list.length) { box.textContent = 'No .mov or .mp4 files found in the Clippy folder.'; return; }
+  box.innerHTML = '';
+  list.forEach(f => {
+    const b = document.createElement('button');
+    b.innerHTML = `<strong>${f.name}</strong><br><small>${fmt(f.duration)} &middot; ${f.mb} MB</small>`;
+    b.onclick = async () => {
+      const r = await (await fetch('/api/jobs', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ source: f.name })
+      })).json();
+      if (r.error) { box.innerHTML = `<span class="err">${r.error}</span>`; return; }
+      job = r.id; cuts = []; hasTranscript = false; cropApplied = null;
+      drawCuts();
+      $('player').src = `/media/${job}/source`;
+      $('startT').value = fmt(0);
+      $('endT').value = fmt(r.duration);
+      $('cutHint').textContent = `${fmt(0)} to ${fmt(r.duration)} available`;
+      step(2);
+    };
+    box.appendChild(b);
+  });
+})();
+
+// ---- 2: clip range and cuts ---------------------------------------------
+$('setStart').onclick = () => $('startT').value = fmt($('player').currentTime);
+$('setEnd').onclick   = () => $('endT').value   = fmt($('player').currentTime);
+$('back1').onclick = () => step(1);
+
+function drawCuts() {
+  $('cutList').innerHTML = '';
+  cuts.forEach((c, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>cut ${fmt(c[0])} &rarr; ${fmt(c[1])}</span>`;
+    const x = document.createElement('button');
+    x.className = 'link'; x.textContent = 'remove';
+    x.onclick = () => { cuts.splice(i, 1); drawCuts(); };
+    li.appendChild(x);
+    $('cutList').appendChild(li);
+  });
+}
+let pendingCut = null;
+$('addCut').onclick = () => {
+  const t = $('player').currentTime;
+  if (pendingCut === null) {
+    pendingCut = t;
+    $('addCut').textContent = 'Set the end of this cut';
+    $('cutHint').textContent = `cut starts at ${fmt(t)} — scrub to its end`;
+  } else {
+    const a = Math.min(pendingCut, t), b = Math.max(pendingCut, t);
+    if (b - a > 0.1) cuts.push([a, b]);
+    pendingCut = null;
+    $('addCut').textContent = 'Add a cut at current position';
+    $('cutHint').textContent = '';
+    drawCuts();
+  }
+};
+
+$('makeClip').onclick = async () => {
+  const start = parse($('startT').value), end = parse($('endT').value);
+  const st = $('clipStatus');
+  if (start === null || end === null) { fail(st, 'Times must look like 00:01:23.4'); return; }
+  if (end <= start) { fail(st, 'End must be after start'); return; }
+
+  // Cuts were chosen against the source timeline; the clip starts at `start`,
+  // so shift them before sending. Anything outside the clip is dropped.
+  const rel = cuts
+    .filter(c => c[1] > start && c[0] < end)
+    .map(c => [Math.max(0, c[0] - start), Math.min(end - start, c[1] - start)]);
+
+  busy(st, 'Cutting the clip&hellip;');
+  $('makeClip').disabled = true;
+  try {
+    await fetch(`/api/jobs/${job}/clip`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ start, end, removals: rel })
+    });
+    await wait('clip');
+    // Re-cutting invalidates anything downstream.
+    hasTranscript = false; cropApplied = null;
+    $('cropVid').src = `/media/${job}/clip?t=${Date.now()}`;
+    st.innerHTML = '';
+    step(3);
+  } catch (e) { fail(st, e.message); }
+  $('makeClip').disabled = false;
+};
+
+// ---- 3: crop -------------------------------------------------------------
+function drawCrop() {
+  let L = +$('cropL').value, R = +$('cropR').value;
+  if (R <= L) { R = Math.min(100, L + 1); $('cropR').value = R; }
+  $('cropLv').textContent = L + '%';
+  $('cropRv').textContent = R + '%';
+  $('maskL').style.left = '0'; $('maskL').style.width = L + '%';
+  $('maskR').style.left = R + '%'; $('maskR').style.width = (100 - R) + '%';
+  $('edgeL').style.left = L + '%'; $('edgeR').style.left = `calc(${R}% - 2px)`;
+  const v = $('cropVid');
+  if (v.videoWidth) {
+    let w = Math.round(v.videoWidth * (R - L) / 100);
+    if (w % 2) w += 1;                       // encoders want an even width
+    const h = v.videoHeight;
+    const g = (a, b) => b ? g(b, a % b) : a;
+    const d = g(w, h) || 1;
+    $('cropDims').textContent =
+      `${w}×${h}  —  aspect ${w/d}:${h/d} (${(w/h).toFixed(2)}:1)`;
+  }
+}
+$('cropL').oninput = drawCrop;
+$('cropR').oninput = drawCrop;
+$('cropVid').onloadedmetadata = drawCrop;
+$('back2').onclick = () => step(2);
+
+$('doCrop').onclick = async () => {
+  const st = $('cropStatus');
+  const L = +$('cropL').value, R = +$('cropR').value;
+  $('doCrop').disabled = true;
+  try {
+    if (cropApplied !== `${L}:${R}`) {
+      busy(st, 'Cropping&hellip;');
+      await fetch(`/api/jobs/${job}/crop`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ left: L, right: R })
+      });
+      await wait('crop');
+      cropApplied = `${L}:${R}`;
+    }
+    // Cropping doesn't touch the audio, so a transcript made earlier is still
+    // valid. Skipping it here is what makes going back to adjust the crop
+    // cheap, and it preserves any caption edits already made.
+    if (!hasTranscript) {
+      busy(st, 'Transcribing &mdash; this takes a minute&hellip;');
+      await fetch(`/api/jobs/${job}/transcribe`, { method: 'POST' });
+      await wait('transcribe');
+      $('srt').value = stripNumbers(await (await fetch(`/api/jobs/${job}/srt`)).text());
+      hasTranscript = true;
+    }
+    $('capVid').src = `/media/${job}/cropped?t=${Date.now()}`;
+    refreshTrack();
+    st.innerHTML = '';
+    step(4);
+  } catch (e) { fail(st, e.message); }
+  $('doCrop').disabled = false;
+};
+
+// ---- 4: captions ---------------------------------------------------------
+// Live caption preview: browsers play WebVTT, not SRT, and the two differ only
+// in a header and a decimal comma -- so the edits in the box can be shown over
+// the video immediately, without re-encoding anything.
+function srtToVtt(srt) {
+  // Cue identifiers are optional in WebVTT, so numberless text converts as-is.
+  return 'WEBVTT\n\n' + srt.replace(/(\d\d:\d\d:\d\d),(\d{3})/g, '$1.$2');
+}
+
+// SRT demands a sequence number above every cue, but they are pure bookkeeping
+// and renumbering them by hand after an edit is miserable. So the box shows the
+// captions without them and they are put back on the way out.
+function stripNumbers(srt) {
+  const lines = srt.replace(/\r\n/g, '\n').split('\n');
+  const kept = lines.filter((line, i) =>
+    // Only a bare number sitting directly above a timing line is bookkeeping;
+    // a caption whose text happens to be "42" must survive.
+    !(/^\d+$/.test(line.trim()) && /-->/.test(lines[i + 1] || '')));
+  return kept.join('\n').trim() + '\n';
+}
+
+function addNumbers(text) {
+  const blocks = text.replace(/\r\n/g, '\n').trim().split(/\n{2,}/)
+                     .filter(b => b.trim());
+  return blocks.map((block, i) => {
+    const lines = block.split('\n');
+    // Tolerate numbers left in by hand rather than doubling them up.
+    if (/^\d+$/.test(lines[0].trim()) && /-->/.test(lines[1] || '')) lines.shift();
+    return `${i + 1}\n${lines.join('\n')}`;
+  }).join('\n\n') + '\n';
+}
+let trackUrl = null;
+function refreshTrack() {
+  const v = $('capVid');
+  v.querySelectorAll('track').forEach(t => t.remove());
+  if (trackUrl) URL.revokeObjectURL(trackUrl);
+  trackUrl = URL.createObjectURL(new Blob([srtToVtt($('srt').value)], { type: 'text/vtt' }));
+  const tr = document.createElement('track');
+  tr.kind = 'subtitles'; tr.label = 'Captions'; tr.srclang = 'en';
+  tr.src = trackUrl; tr.default = true;
+  v.appendChild(tr);
+  if (v.textTracks[0]) v.textTracks[0].mode = 'showing';
+}
+let trackTimer = null;
+$('srt').oninput = () => {
+  clearTimeout(trackTimer);
+  trackTimer = setTimeout(refreshTrack, 400);
+};
+$('back3').onclick = () => step(3);
+
+$('doRender').onclick = async () => {
+  const st = $('renderStatus');
+  $('doRender').disabled = true;
+  try {
+    busy(st, 'Burning in the captions&hellip;');
+    await fetch(`/api/jobs/${job}/render`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ srt: addNumbers($('srt').value) })
+    });
+    await wait('render');
+    $('finalVid').src = `/media/${job}/final?t=${Date.now()}`;
+    $('dl').href = `/download/${job}`;
+    st.innerHTML = '';
+    step(5);
+  } catch (e) { fail(st, e.message); }
+  $('doRender').disabled = false;
+};
+
+// ---- 5 -------------------------------------------------------------------
+$('back4').onclick = () => step(4);
+$('again').onclick = () => location.reload();
+</script>
+</body>
+</html>
