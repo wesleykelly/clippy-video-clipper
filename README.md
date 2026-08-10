@@ -1,10 +1,13 @@
 # clippy-video-clipper
 
+This project is MacOS-only currently.
+
 Run the whole shebang:
 python3 clippy.py
 
+This serves up an application on http://127.0.0.1:5001
 
-Or run individual scripts:
+Or, run individual scripts:
 
 Extract clip from full show:
 python3 clip.py show.mov 00:10:10.5 00:11:44
