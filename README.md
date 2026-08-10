@@ -15,7 +15,7 @@ Underneath are five single-purpose python scripts. Each does one thing and
 writes one predictable file, so they chain together and are useful on their own:
 
 | script | what it does |
-| --- | --- | --- |
+| --- | --- |
 | `clip.py` | keep the part between two times |
 | `remove.py` | drop the part between two times, join the rest |
 | `crop.py` | trim the left and right edges |
