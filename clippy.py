@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Clippy -- a small web front end that chains the clipping tools together.
 
-    python3 clippy.py            then open http://127.0.0.1:5000
+    python3 clippy.py            then open http://127.0.0.1:5001
 
 Walks you through: pick a video, choose a clip, cut sections out of it, set the
-crop against a freeze frame, then transcribe, correct the captions and render.
+crop against a live preview, then transcribe, correct the captions and render.
 
 Each step shells out to the existing scripts (clip.py, remove.py, crop.py,
 caption.py) rather than reimplementing them, so there is one implementation of
@@ -203,14 +203,8 @@ def make_clip(job_id):
             staged.replace(d / "clip.mov")
             current = d / "clip.mov"
 
-        # Freeze frame from the middle, for the crop step.
-        dur = probe_duration(current)
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{dur / 2:.2f}",
-                        "-i", str(current), "-frames:v", "1", "-q:v", "3",
-                        str(d / "frame.jpg")], check=True)
         job["files"]["clip"] = current
-        job["files"]["frame"] = d / "frame.jpg"
-        set_state(job, clip_duration=dur)
+        set_state(job, clip_duration=probe_duration(current))
 
     background(job, "clip", work)
     return jsonify({"ok": True})
