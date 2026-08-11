@@ -26,11 +26,44 @@ Times are always `HH:MM:SS`, optionally to a tenth of a second: `00:10:04.5`.
 
 ## Instructions
 
+Requires Python 3.9+.
+
 ```bash
-brew install ffmpeg
+brew install ffmpeg ffmpeg@7
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 python3 clippy.py
 ```
 
 This serves up an application on http://127.0.0.1:5001
-Requires Python 3.9+
+
+You don't need to activate the virtualenv — `clippy.py` and `caption.py` re-run
+themselves with it. The Whisper model (~145 MB) downloads itself the first time
+you transcribe something.
+
+### Why two ffmpegs?
+
+Burning captions into the picture needs the `subtitles` filter, which is only
+built when ffmpeg is compiled against **libass**. Homebrew's current `ffmpeg`
+(8.x) is not, so on its own it cannot draw captions at all — and it reports this
+as a confusing `No option name near ...` parse error rather than saying the
+filter is missing. `ffmpeg@7` is still built with libass and installs pre-built
+in seconds, so it is used only for that one step.
+
+`caption.py` finds a suitable ffmpeg by itself and prefers whatever is on your
+PATH, so if you already have an ffmpeg with libass you can skip `ffmpeg@7`. To
+check what you have:
+
+```bash
+ffmpeg -filters | grep subtitles
+```
+
+Nothing printed means that build can't burn in captions.
+
+On Linux the stock distro ffmpeg includes libass, so `sudo apt install ffmpeg`
+covers everything — though the other scripts are macOS-only for now (see below).
+
+### macOS only, for now
+
+Every script except `smallify.py` encodes with `h264_videotoolbox`, Apple's
+hardware encoder. On Linux or Windows they fail with "Unknown encoder" until
+that is swapped for `libx264`.

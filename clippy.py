@@ -13,13 +13,12 @@ scripts write fixed filenames into the current directory, which is exactly what
 we want here: each job runs in its own directory, so those fixed names never
 collide between jobs.
 """
-import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -87,6 +86,23 @@ def run_tool(script, args, cwd):
     return proc.stdout
 
 
+def job_folder(source: Path) -> Path:
+    """A readable folder name: "10:43am 08.11.26 show.mov".
+
+    This is only ever a folder name. The job id stays a plain hex string,
+    because it also appears in URLs, where spaces and colons would have to be
+    escaped at every use.
+    """
+    now = datetime.now()
+    stamp = now.strftime("%I:%M%p").lstrip("0").lower()   # 10:43am
+    base = f"{stamp} {now.strftime('%m.%d.%y')} {source.name}"
+    name, n = base, 2
+    while (JOBS_DIR / name).exists():   # same minute, same source
+        name = f"{base} ({n})"
+        n += 1
+    return JOBS_DIR / name
+
+
 def get_job(job_id):
     with jobs_lock:
         job = jobs.get(job_id)
@@ -141,7 +157,8 @@ def create_job():
         return jsonify({"error": f"no such video: {name}"}), 400
 
     job_id = uuid.uuid4().hex[:12]
-    job_dir = JOBS_DIR / job_id
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    job_dir = job_folder(source)
     job_dir.mkdir(parents=True, exist_ok=True)
     job = {"id": job_id, "dir": job_dir, "source": source,
            "state": "idle", "step": "created", "error": None,

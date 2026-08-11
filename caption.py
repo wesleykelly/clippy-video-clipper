@@ -14,6 +14,7 @@ needs to, so plain `python3 caption.py` is always the right way to start it.
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -76,6 +77,35 @@ def transcribe(video):
     return SRT_OUT
 
 
+def ffmpeg_with_subtitles():
+    """Locate an ffmpeg whose build can draw subtitles.
+
+    Drawing text needs libass, and Homebrew's current ffmpeg bottle is built
+    without it -- the `subtitles` filter simply isn't there. Worse, ffmpeg then
+    reports a confusing "No option name" parse error rather than saying the
+    filter is missing. Versioned formulas such as ffmpeg@7 still bundle libass,
+    so prefer whatever is on PATH and fall back to those.
+    """
+    candidates = ["ffmpeg",
+                  "/opt/homebrew/opt/ffmpeg@7/bin/ffmpeg",
+                  "/opt/homebrew/opt/ffmpeg@6/bin/ffmpeg",
+                  "/usr/local/opt/ffmpeg@7/bin/ffmpeg",
+                  "/usr/local/opt/ffmpeg@6/bin/ffmpeg"]
+    for name in candidates:
+        exe = shutil.which(name)
+        if not exe:
+            continue
+        try:
+            out = subprocess.run([exe, "-hide_banner", "-filters"],
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True).stdout
+        except OSError:
+            continue
+        if " subtitles " in out:
+            return exe
+    return None
+
+
 ap = argparse.ArgumentParser(description=f"Burn captions into a video, into {OUTPUT}.")
 ap.add_argument("video")
 ap.add_argument("--srt", help="use this subtitle file instead of transcribing")
@@ -93,10 +123,18 @@ else:
 
 # The filter argument is escaped because ffmpeg parses ':' and ',' as its own
 # separators, so a path containing either would otherwise split the filter.
+ffmpeg = ffmpeg_with_subtitles()
+if not ffmpeg:
+    sys.exit("error: no ffmpeg on this system can draw subtitles -- the build "
+             "is missing libass.\n"
+             "  macOS:  brew install ffmpeg@7\n"
+             "  Debian: sudo apt install ffmpeg (the stock build includes libass)\n"
+             f"Your captions are still saved in {srt_path}.")
+
 escaped = srt_path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
 style = "FontSize=18,Outline=2,Shadow=1,MarginV=30"
 result = subprocess.run([
-    "ffmpeg", "-v", "error", "-y", "-i", args.video,
+    ffmpeg, "-v", "error", "-y", "-i", args.video,
     "-vf", f"subtitles='{escaped}':force_style='{style}'",
     "-c:v", "h264_videotoolbox", "-b:v", "12M", "-c:a", "aac", "-b:a", "192k",
     OUTPUT,
