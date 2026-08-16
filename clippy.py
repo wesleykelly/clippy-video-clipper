@@ -190,6 +190,14 @@ def make_clip(job_id):
 
     def work():
         d = job["dir"]
+        # Whole video, nothing removed: use the source where it lies. Skipping
+        # this step should cost nothing, and re-encoding it to an identical
+        # clip would be the slowest thing in the app.
+        if start <= 0 and end >= job["duration"] - 0.05 and not removals:
+            job["files"]["clip"] = job["source"]
+            set_state(job, clip_duration=job["duration"])
+            return
+
         run_tool("clip.py", [str(job["source"]), timecode(start), timecode(end)], d)
         current = d / "clip.mov"
 
@@ -215,14 +223,16 @@ def do_crop(job_id):
     job = get_job(job_id)
     body = request.json or {}
     left, right = int(body["left"]), int(body["right"])
+    top, bottom = int(body.get("top", 0)), int(body.get("bottom", 100))
 
     def work():
         d = job["dir"]
-        if left == 0 and right == 100:
+        if left == 0 and right == 100 and top == 0 and bottom == 100:
             # Nothing to trim, so skip a needless re-encode.
             job["files"]["cropped"] = job["files"]["clip"]
             return
-        run_tool("crop.py", [str(job["files"]["clip"]), str(left), str(right)], d)
+        run_tool("crop.py", [str(job["files"]["clip"]), str(left), str(right),
+                             str(top), str(bottom)], d)
         job["files"]["cropped"] = d / "cropped.mov"
 
     background(job, "crop", work)
@@ -239,6 +249,18 @@ def do_transcribe(job_id):
         job["files"]["srt"] = d / "captions.srt"
 
     background(job, "transcribe", work)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/jobs/<job_id>/finish")
+def finish_uncaptioned(job_id):
+    """Finish without captions: the cropped clip is already the finished clip."""
+    job = get_job(job_id)
+
+    def work():
+        job["files"]["final"] = job["files"]["cropped"]
+
+    background(job, "render", work)
     return jsonify({"ok": True})
 
 

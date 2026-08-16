@@ -36,6 +36,22 @@ python3 clippy.py
 
 This serves up an application on http://127.0.0.1:5001
 
+### Starting it without the terminal
+
+Double-click **`Start Clippy.command`** in Finder. It starts the server and
+opens your browser once it's ready; close the Terminal window it opens (or press
+Ctrl+C there) to stop it. Clicking it again while it's already running just
+reopens the browser rather than failing on the busy port.
+
+For quicker access, right-click it → *Make Alias* and drag the alias to your
+Desktop or the right-hand side of the Dock.
+
+If it opens in a text editor instead of running, it has lost its executable bit:
+
+```bash
+chmod +x "Start Clippy.command"
+```
+
 You don't need to activate the virtualenv — `clippy.py` and `caption.py` re-run
 themselves with it. The Whisper model (~145 MB) downloads itself the first time
 you transcribe something.

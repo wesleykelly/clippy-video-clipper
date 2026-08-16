@@ -63,8 +63,13 @@
     display: block; width: 100%; max-height: 46vh;
     border-radius: 9px; background: #000;
   }
-  .mask { position: absolute; top: 0; bottom: 0; background: var(--shade); pointer-events: none; }
-  .edge { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
+  /* Four shaded bands around the kept rectangle. Each is positioned wholly in
+     JS so the bands meet exactly and no corner is shaded twice. */
+  .mask { position: absolute; background: var(--shade); pointer-events: none; }
+  .keepBox {
+    position: absolute; border: 2px solid var(--accent);
+    box-sizing: border-box; pointer-events: none;
+  }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .row + .row { margin-top: 10px; }
   .row.split { justify-content: space-between; }
@@ -140,6 +145,7 @@
       <button class="back" id="back1">&larr; Choose a different video</button>
       <span style="display:flex;gap:10px;align-items:center">
         <span id="clipStatus"></span>
+        <button class="back" id="skipClip">Skip &rarr;</button>
         <button class="primary" id="makeClip">Make the clip</button>
       </span>
     </div>
@@ -152,10 +158,11 @@
     <div class="media">
       <div class="frameBox">
         <video id="cropVid" controls preload="metadata"></video>
+        <div class="mask" id="maskT"></div>
+        <div class="mask" id="maskB"></div>
         <div class="mask" id="maskL"></div>
         <div class="mask" id="maskR"></div>
-        <div class="edge" id="edgeL"></div>
-        <div class="edge" id="edgeR"></div>
+        <div class="keepBox" id="keepBox"></div>
       </div>
     </div>
     <div class="row" style="margin-top:14px">
@@ -168,11 +175,22 @@
       <input type="range" id="cropR" min="0" max="100" value="100" style="flex:1">
       <span class="meta" id="cropRv" style="width:38px">100%</span>
     </div>
+    <div class="row">
+      <label class="lbl">Top</label>
+      <input type="range" id="cropT" min="0" max="100" value="0" style="flex:1">
+      <span class="meta" id="cropTv" style="width:38px">0%</span>
+    </div>
+    <div class="row">
+      <label class="lbl">Bottom</label>
+      <input type="range" id="cropB" min="0" max="100" value="100" style="flex:1">
+      <span class="meta" id="cropBv" style="width:38px">100%</span>
+    </div>
     <p class="meta" id="cropDims"></p>
     <div class="row split">
       <button class="back" id="back2">&larr; Back to clip &amp; cuts</button>
       <span style="display:flex;gap:10px;align-items:center">
         <span id="cropStatus"></span>
+        <button class="back" id="skipCrop">Skip &rarr;</button>
         <button class="primary" id="doCrop">Apply crop</button>
       </span>
     </div>
@@ -189,6 +207,7 @@
       <button class="back" id="back3">&larr; Back to crop</button>
       <span style="display:flex;gap:10px;align-items:center">
         <span id="renderStatus"></span>
+        <button class="back" id="skipCaptions">Skip &rarr;</button>
         <button class="primary" id="doRender">Render the final clip</button>
       </span>
     </div>
@@ -211,6 +230,7 @@
 <script>
 const $ = id => document.getElementById(id);
 let job = null, cuts = [], hasTranscript = false, cropApplied = null;
+let sourceDuration = 0;
 
 // ---- time helpers: the tools accept HH:MM:SS with one optional decimal ----
 function fmt(sec) {
@@ -263,6 +283,7 @@ async function wait(stepName) {
       })).json();
       if (r.error) { box.innerHTML = `<span class="err">${r.error}</span>`; return; }
       job = r.id; cuts = []; hasTranscript = false; cropApplied = null;
+      sourceDuration = r.duration;
       drawCuts();
       $('player').src = `/media/${job}/source`;
       $('startT').value = fmt(0);
@@ -308,20 +329,10 @@ $('addCut').onclick = () => {
   }
 };
 
-$('makeClip').onclick = async () => {
-  const start = parse($('startT').value), end = parse($('endT').value);
+async function runClip(start, end, rel, message) {
   const st = $('clipStatus');
-  if (start === null || end === null) { fail(st, 'Times must look like 00:01:23.4'); return; }
-  if (end <= start) { fail(st, 'End must be after start'); return; }
-
-  // Cuts were chosen against the source timeline; the clip starts at `start`,
-  // so shift them before sending. Anything outside the clip is dropped.
-  const rel = cuts
-    .filter(c => c[1] > start && c[0] < end)
-    .map(c => [Math.max(0, c[0] - start), Math.min(end - start, c[1] - start)]);
-
-  busy(st, 'Cutting the clip&hellip;');
-  $('makeClip').disabled = true;
+  busy(st, message);
+  $('makeClip').disabled = $('skipClip').disabled = true;
   try {
     await fetch(`/api/jobs/${job}/clip`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -334,47 +345,87 @@ $('makeClip').onclick = async () => {
     st.innerHTML = '';
     step(3);
   } catch (e) { fail(st, e.message); }
-  $('makeClip').disabled = false;
+  $('makeClip').disabled = $('skipClip').disabled = false;
+}
+
+$('makeClip').onclick = () => {
+  const start = parse($('startT').value), end = parse($('endT').value);
+  const st = $('clipStatus');
+  if (start === null || end === null) { fail(st, 'Times must look like 00:01:23.4'); return; }
+  if (end <= start) { fail(st, 'End must be after start'); return; }
+
+  // Cuts were chosen against the source timeline; the clip starts at `start`,
+  // so shift them before sending. Anything outside the clip is dropped.
+  const rel = cuts
+    .filter(c => c[1] > start && c[0] < end)
+    .map(c => [Math.max(0, c[0] - start), Math.min(end - start, c[1] - start)]);
+
+  runClip(start, end, rel, 'Cutting the clip&hellip;');
 };
 
+// Skip: the whole video, uncut. The server recognises that as "no work" and
+// uses the source file where it lies, so this is instant.
+$('skipClip').onclick = () => runClip(0, sourceDuration, [], 'Using the whole video&hellip;');
+
 // ---- 3: crop -------------------------------------------------------------
-function drawCrop() {
+function cropValues() {
   let L = +$('cropL').value, R = +$('cropR').value;
+  let T = +$('cropT').value, B = +$('cropB').value;
+  // Keep at least a sliver, whichever handle the user is dragging.
   if (R <= L) { R = Math.min(100, L + 1); $('cropR').value = R; }
+  if (B <= T) { B = Math.min(100, T + 1); $('cropB').value = B; }
+  return { L, R, T, B };
+}
+
+function drawCrop() {
+  const { L, R, T, B } = cropValues();
   $('cropLv').textContent = L + '%';
   $('cropRv').textContent = R + '%';
-  $('maskL').style.left = '0'; $('maskL').style.width = L + '%';
-  $('maskR').style.left = R + '%'; $('maskR').style.width = (100 - R) + '%';
-  $('edgeL').style.left = L + '%'; $('edgeR').style.left = `calc(${R}% - 2px)`;
+  $('cropTv').textContent = T + '%';
+  $('cropBv').textContent = B + '%';
+
+  const put = (el, left, top, width, height) => {
+    const s = $(el).style;
+    s.left = left + '%'; s.top = top + '%';
+    s.width = width + '%'; s.height = height + '%';
+  };
+  // Full-width bands top and bottom; the side bands fill only the gap between
+  // them, so the corners are shaded once rather than twice.
+  put('maskT', 0, 0, 100, T);
+  put('maskB', 0, B, 100, 100 - B);
+  put('maskL', 0, T, L, B - T);
+  put('maskR', R, T, 100 - R, B - T);
+  put('keepBox', L, T, R - L, B - T);
+
   const v = $('cropVid');
   if (v.videoWidth) {
     let w = Math.round(v.videoWidth * (R - L) / 100);
-    if (w % 2) w += 1;                       // encoders want an even width
-    const h = v.videoHeight;
+    let h = Math.round(v.videoHeight * (B - T) / 100);
+    if (w % 2) w += 1;                  // encoders want even dimensions
+    if (h % 2) h += 1;
     const g = (a, b) => b ? g(b, a % b) : a;
     const d = g(w, h) || 1;
     $('cropDims').textContent =
       `${w}×${h}  —  aspect ${w/d}:${h/d} (${(w/h).toFixed(2)}:1)`;
   }
 }
-$('cropL').oninput = drawCrop;
-$('cropR').oninput = drawCrop;
+['cropL','cropR','cropT','cropB'].forEach(id => { $(id).oninput = drawCrop; });
 $('cropVid').onloadedmetadata = drawCrop;
 $('back2').onclick = () => step(2);
 
-$('doCrop').onclick = async () => {
+async function applyCrop(L, R, T, B, message) {
   const st = $('cropStatus');
-  const L = +$('cropL').value, R = +$('cropR').value;
-  $('doCrop').disabled = true;
+  $('doCrop').disabled = $('skipCrop').disabled = true;
   try {
-    if (cropApplied !== `${L}:${R}`) {
-      busy(st, 'Cropping&hellip;');
+    const key = `${L}:${R}:${T}:${B}`;
+    if (cropApplied !== key) {
+      busy(st, message);
       await fetch(`/api/jobs/${job}/crop`, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ left: L, right: R })
+        body: JSON.stringify({ left: L, right: R, top: T, bottom: B })
       });
       await wait('crop');
-      cropApplied = `${L}:${R}`;
+      cropApplied = key;
     }
     // Cropping doesn't touch the audio, so a transcript made earlier is still
     // valid. Skipping it here is what makes going back to adjust the crop
@@ -391,8 +442,16 @@ $('doCrop').onclick = async () => {
     st.innerHTML = '';
     step(4);
   } catch (e) { fail(st, e.message); }
-  $('doCrop').disabled = false;
+  $('doCrop').disabled = $('skipCrop').disabled = false;
+}
+
+$('doCrop').onclick = () => {
+  const { L, R, T, B } = cropValues();
+  applyCrop(L, R, T, B, 'Cropping&hellip;');
 };
+
+// Skip: the full frame. The server treats that as no work, so no re-encode.
+$('skipCrop').onclick = () => applyCrop(0, 100, 0, 100, 'Skipping the crop&hellip;');
 
 // ---- 4: captions ---------------------------------------------------------
 // Live caption preview: browsers play WebVTT, not SRT, and the two differ only
@@ -444,23 +503,33 @@ $('srt').oninput = () => {
 };
 $('back3').onclick = () => step(3);
 
-$('doRender').onclick = async () => {
+async function finish(request, message) {
   const st = $('renderStatus');
-  $('doRender').disabled = true;
+  $('doRender').disabled = $('skipCaptions').disabled = true;
   try {
-    busy(st, 'Burning in the captions&hellip;');
-    await fetch(`/api/jobs/${job}/render`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ srt: addNumbers($('srt').value) })
-    });
+    busy(st, message);
+    await request();
     await wait('render');
     $('finalVid').src = `/media/${job}/final?t=${Date.now()}`;
     $('dl').href = `/download/${job}`;
     st.innerHTML = '';
     step(5);
   } catch (e) { fail(st, e.message); }
-  $('doRender').disabled = false;
-};
+  $('doRender').disabled = $('skipCaptions').disabled = false;
+}
+
+$('doRender').onclick = () => finish(
+  () => fetch(`/api/jobs/${job}/render`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ srt: addNumbers($('srt').value) })
+  }),
+  'Burning in the captions&hellip;');
+
+// Skip: no captions at all. The cropped clip is already the finished clip, so
+// the server just points at it -- no second encode.
+$('skipCaptions').onclick = () => finish(
+  () => fetch(`/api/jobs/${job}/finish`, { method: 'POST' }),
+  'Finishing without captions&hellip;');
 
 // ---- 5 -------------------------------------------------------------------
 $('back4').onclick = () => step(4);
